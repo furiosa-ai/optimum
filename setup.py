@@ -22,6 +22,10 @@ REQUIRED_PKGS = [
     "numpy",
     "huggingface_hub>=0.8.0",
     "datasets",
+    "furiosa-sdk",
+    "onnx",
+    "onnxsim",
+    "onnxruntime",
 ]
 
 TESTS_REQUIRE = [
