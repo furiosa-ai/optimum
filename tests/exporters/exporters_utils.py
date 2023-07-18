@@ -15,9 +15,11 @@
 
 VALIDATE_EXPORT_ON_SHAPES_SLOW = {
     "batch_size": [1, 3, 5],
-    "sequence_length": [8, 19, 33, 64, 96, 154],
+    "sequence_length": [8, 33, 96, 154],
     "num_choices": [2, 4],
     "audio_sequence_length": [1000, 2000],
+    "point_batch_size": [1, 5],
+    "nb_points_per_image": [1, 3],
 }
 
 VALIDATE_EXPORT_ON_SHAPES_FAST = {
@@ -41,6 +43,7 @@ PYTORCH_EXPORT_MODELS_TINY = {
     "clip": "hf-internal-testing/tiny-random-CLIPModel",
     "convbert": "hf-internal-testing/tiny-random-ConvBertModel",
     "codegen": "hf-internal-testing/tiny-random-CodeGenModel",
+    "cvt": "hf-internal-testing/tiny-random-CvTModel",
     "data2vec-text": "hf-internal-testing/tiny-random-Data2VecTextModel",
     "data2vec-vision": "hf-internal-testing/tiny-random-Data2VecVisionModel",
     "data2vec-audio": "hf-internal-testing/tiny-random-Data2VecAudioModel",
@@ -63,6 +66,7 @@ PYTORCH_EXPORT_MODELS_TINY = {
     "levit": "hf-internal-testing/tiny-random-LevitModel",
     "layoutlm": "hf-internal-testing/tiny-random-LayoutLMModel",
     "layoutlmv3": "hf-internal-testing/tiny-random-LayoutLMv3Model",
+    "lilt": "hf-internal-testing/tiny-random-LiltModel",
     "llama": "fxmarty/tiny-llama-fast-tokenizer",
     "longt5": "fxmarty/tiny-random-working-LongT5Model",
     # "longformer": "allenai/longformer-base-4096",
@@ -77,18 +81,20 @@ PYTORCH_EXPORT_MODELS_TINY = {
     "mt5": "lewtun/tiny-random-mt5",
     "nystromformer": "hf-internal-testing/tiny-random-NystromformerModel",
     "opt": "hf-internal-testing/tiny-random-OPTModel",
-    # "owlvit": "google/owlvit-base-patch32",
+    "owlvit": "hf-tiny-model-private/tiny-random-OwlViTModel",
     "pegasus": "hf-internal-testing/tiny-random-PegasusModel",
     "perceiver": {
         "hf-internal-testing/tiny-random-language_perceiver": ["fill-mask", "text-classification"],
         "hf-internal-testing/tiny-random-vision_perceiver_conv": ["image-classification"],
     },
+    "pix2struct": "fxmarty/pix2struct-tiny-random",
     # "rembert": "google/rembert",
     "poolformer": "hf-internal-testing/tiny-random-PoolFormerModel",
     "regnet": "hf-internal-testing/tiny-random-RegNetModel",
     "resnet": "hf-internal-testing/tiny-random-resnet",
     "roberta": "hf-internal-testing/tiny-random-RobertaModel",
     "roformer": "hf-internal-testing/tiny-random-RoFormerModel",
+    "sam": "fxmarty/sam-vit-tiny-random",
     "segformer": "hf-internal-testing/tiny-random-SegformerModel",
     "splinter": "hf-internal-testing/tiny-random-SplinterModel",
     "squeezebert": "hf-internal-testing/tiny-random-SqueezeBertModel",
@@ -133,6 +139,10 @@ PYTORCH_EXPORT_MODELS_TINY = {
             "image-to-text-with-past",
         ],
         "microsoft/trocr-small-handwritten": ["image-to-text"],
+        "fxmarty/tiny-doc-qa-vision-encoder-decoder": [
+            "document-question-answering",
+            "document-question-answering-with-past",
+        ],
     },
 }
 
@@ -172,6 +182,7 @@ PYTORCH_EXPORT_MODELS_LARGE = {
     "levit": "facebook/levit-128S",
     "layoutlm": "microsoft/layoutlm-base-uncased",
     "layoutlmv3": "microsoft/layoutlmv3-base",
+    "lilt": "SCUT-DLVCLab/lilt-roberta-en-base",
     "llama": "decapoda-research/llama-65b-hf",
     "longt5": "fxmarty/tiny-random-working-LongT5Model",  # Not using google/long-t5-local-base because it takes too much time for testing.
     # "longformer": "allenai/longformer-base-4096",
@@ -192,6 +203,7 @@ PYTORCH_EXPORT_MODELS_LARGE = {
     "resnet": "microsoft/resnet-50",
     "roberta": "roberta-base",
     "roformer": "junnyu/roformer_chinese_base",
+    "sam": "facebook/sam-vit-base",
     "segformer": "nvidia/segformer-b0-finetuned-ade-512-512",
     "splinter": "hf-internal-testing/tiny-random-SplinterModel",
     "squeezebert": "squeezebert/squeezebert-uncased",

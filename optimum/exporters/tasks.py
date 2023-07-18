@@ -20,18 +20,18 @@ import itertools
 import os
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 import huggingface_hub
+from packaging import version
+from requests.exceptions import ConnectionError as RequestsConnectionError
 from transformers import AutoConfig, PretrainedConfig, is_tf_available, is_torch_available
-from transformers.utils import TF2_WEIGHTS_NAME, WEIGHTS_NAME, logging
+from transformers.utils import SAFE_WEIGHTS_NAME, TF2_WEIGHTS_NAME, WEIGHTS_NAME, logging
 
 from ..utils.import_utils import is_onnx_available
 
 
 if TYPE_CHECKING:
-    import torch
-
     from .base import ExportConfig
 
 
@@ -44,6 +44,7 @@ if not is_torch_available() and not is_tf_available():
     )
 
 if is_torch_available():
+    import torch
     from transformers import PreTrainedModel
 
 if is_tf_available():
@@ -144,6 +145,10 @@ class TasksManager:
         # Refer to https://huggingface.co/datasets/huggingface/transformers-metadata/blob/main/pipeline_tags.json
         # In case the same task (pipeline tag) may map to several loading classes, we use a tuple and the
         # auto-class _model_mapping to determine the right one.
+
+        # TODO: having several tasks pointing to the same auto-model class is bug prone to auto-detect the
+        # task in a Hub repo that has no pipeline_tag, and no transformersInfo.pipeline_tag, as we then rely on
+        # on transformersInfo["auto_model"] and this dictionary.
         _TASKS_TO_AUTOMODELS = {
             "conversational": ("AutoModelForCausalLM", "AutoModelForSeq2SeqLM"),
             "feature-extraction": "AutoModel",
@@ -157,6 +162,7 @@ class TasksManager:
             "question-answering": "AutoModelForQuestionAnswering",
             "image-classification": "AutoModelForImageClassification",
             "image-segmentation": "AutoModelForImageSegmentation",
+            "mask-generation": "AutoModel",
             "masked-im": "AutoModelForMaskedImageModeling",
             "semantic-segmentation": "AutoModelForSemanticSegmentation",
             "automatic-speech-recognition": ("AutoModelForSpeechSeq2Seq", "AutoModelForCTC"),
@@ -171,6 +177,7 @@ class TasksManager:
     if is_tf_available():
         _TASKS_TO_TF_AUTOMODELS = {
             "conversational": ("TFAutoModelForCausalLM", "TFAutoModelForSeq2SeqLM"),
+            "document-question-answering": "TFAutoModelForDocumentQuestionAnswering",
             "feature-extraction": "TFAutoModel",
             "fill-mask": "TFAutoModelForMaskedLM",
             "text-generation": "TFAutoModelForCausalLM",
@@ -202,11 +209,13 @@ class TasksManager:
         "speech2seq-lm": "automatic-speech-recognition",
         "speech2seq-lm-with-past": "automatic-speech-recognition-with-past",
         "masked-lm": "fill-mask",
+        "mask-generation": "feature-extraction",
         "vision2seq-lm": "image-to-text",
         "default": "feature-extraction",
         "default-with-past": "feature-extraction-with-past",
         "audio-ctc": "automatic-speech-recognition",
         "translation": "text2text-generation",
+        "sentence-similarity": "feature-extraction",
         "summarization": "text2text-generation",
         "zero-shot-classification": "text-classification",
     }
@@ -217,11 +226,15 @@ class TasksManager:
 
     _CUSTOM_CLASSES = {
         ("pt", "pix2struct", "image-to-text"): ("transformers", "Pix2StructForConditionalGeneration"),
+        ("pt", "pix2struct", "visual-question-answering"): ("transformers", "Pix2StructForConditionalGeneration"),
         ("pt", "visual-bert", "question-answering"): ("transformers", "VisualBertForQuestionAnswering"),
+        # VisionEncoderDecoderModel is not registered in AutoModelForDocumentQuestionAnswering
+        ("pt", "vision-encoder-decoder", "document-question-answering"): ("transformers", "VisionEncoderDecoderModel"),
     }
 
     _TASKS_TO_LIBRARY = {
         "conversational": "transformers",
+        "document-question-answering": "transformers",
         "feature-extraction": "transformers",
         "fill-mask": "transformers",
         "text-generation": "transformers",
@@ -234,6 +247,7 @@ class TasksManager:
         "question-answering": "transformers",
         "image-classification": "transformers",
         "image-segmentation": "transformers",
+        "mask-generation": "transformers",
         "masked-im": "transformers",
         "semantic-segmentation": "transformers",
         "automatic-speech-recognition": "transformers",
@@ -241,8 +255,10 @@ class TasksManager:
         "audio-frame-classification": "transformers",
         "audio-xvector": "transformers",
         "image-to-text": "transformers",
+        "sentence-similarity": "transformers",
         "stable-diffusion": "diffusers",
         "summarization": "transformers",
+        "visual-question-answering": "transformers",
         "zero-shot-classification": "transformers",
         "zero-shot-image-classification": "transformers",
         "zero-shot-object-detection": "transformers",
@@ -386,6 +402,7 @@ class TasksManager:
             "image-classification",
             onnx="ConvNextOnnxConfig",
         ),
+        "cvt": supported_tasks_mapping("feature-extraction", "image-classification", onnx="CvTOnnxConfig"),
         "data2vec-text": supported_tasks_mapping(
             "feature-extraction",
             "fill-mask",
@@ -552,6 +569,13 @@ class TasksManager:
             "token-classification",
             onnx="LayoutLMv3OnnxConfig",
         ),
+        "lilt": supported_tasks_mapping(
+            "feature-extraction",
+            "question-answering",
+            "text-classification",
+            "token-classification",
+            onnx="LiltOnnxConfig",
+        ),
         "levit": supported_tasks_mapping("feature-extraction", "image-classification", onnx="LevitOnnxConfig"),
         "longt5": supported_tasks_mapping(
             "feature-extraction",
@@ -653,12 +677,11 @@ class TasksManager:
             "token-classification",
             onnx="NystromformerOnnxConfig",
         ),
-        # TODO: owlvit cannot be exported yet, check model_config.py to know why.
-        # "owlvit": supported_tasks_mapping(
-        #     "feature-extraction",
-        #     "zero-shot-object-detection",
-        #     onnx="OwlViTOnnxConfig",
-        # ),
+        "owlvit": supported_tasks_mapping(
+            "feature-extraction",
+            "zero-shot-object-detection",
+            onnx="OwlViTOnnxConfig",
+        ),
         "opt": supported_tasks_mapping(
             "feature-extraction",
             "feature-extraction-with-past",
@@ -690,6 +713,13 @@ class TasksManager:
             "image-classification",
             "text-classification",
             onnx="PerceiverOnnxConfig",
+        ),
+        "pix2struct": supported_tasks_mapping(
+            "image-to-text",
+            "image-to-text-with-past",
+            "visual-question-answering",
+            "visual-question-answering-with-past",
+            onnx="Pix2StructOnnxConfig",
         ),
         "poolformer": supported_tasks_mapping(
             "feature-extraction",
@@ -728,6 +758,10 @@ class TasksManager:
             "token-classification",
             onnx="RoFormerOnnxConfig",
             tflite="RoFormerTFLiteConfig",
+        ),
+        "sam": supported_tasks_mapping(
+            "mask-generation",
+            onnx="SamOnnxConfig",
         ),
         "segformer": supported_tasks_mapping(
             "feature-extraction",
@@ -817,6 +851,8 @@ class TasksManager:
         "vision-encoder-decoder": supported_tasks_mapping(
             "image-to-text",
             "image-to-text-with-past",
+            "document-question-answering",
+            "document-question-answering-with-past",
             onnx="VisionEncoderDecoderOnnxConfig",
         ),
         "vit": supported_tasks_mapping(
@@ -982,6 +1018,17 @@ class TasksManager:
         ]
 
     @staticmethod
+    def synonyms_for_task(task: str) -> Set[str]:
+        synonyms = [k for k, v in TasksManager._SYNONYM_TASK_MAP.items() if v == task]
+        synonyms += [k for k, v in TasksManager._SYNONYM_TASK_MAP.items() if v == TasksManager.map_from_synonym(task)]
+        synonyms = set(synonyms)
+        try:
+            synonyms.remove(task)
+        except KeyError:
+            pass
+        return synonyms
+
+    @staticmethod
     def map_from_synonym(task: str) -> str:
         if task in TasksManager._SYNONYM_TASK_MAP:
             task = TasksManager._SYNONYM_TASK_MAP[task]
@@ -1086,7 +1133,10 @@ class TasksManager:
 
     @staticmethod
     def determine_framework(
-        model_name_or_path: Union[str, Path], subfolder: str = "", framework: Optional[str] = None
+        model_name_or_path: Union[str, Path],
+        subfolder: str = "",
+        framework: Optional[str] = None,
+        cache_dir: str = huggingface_hub.constants.HUGGINGFACE_HUB_CACHE,
     ) -> str:
         """
         Determines the framework to use for the export.
@@ -1094,7 +1144,7 @@ class TasksManager:
         The priority is in the following order:
             1. User input via `framework`.
             2. If local checkpoint is provided, use the same framework as the checkpoint.
-            3. If model repo, try to infer the framework from the Hub.
+            3. If model repo, try to infer the framework from the cache if available, else from the Hub.
             4. If could not infer, use available framework in environment, with priority given to PyTorch.
 
         Args:
@@ -1114,6 +1164,7 @@ class TasksManager:
         if framework is not None:
             return framework
 
+        request_exception = None
         full_model_path = Path(model_name_or_path) / subfolder
         if full_model_path.is_dir():
             all_files = [
@@ -1122,15 +1173,39 @@ class TasksManager:
                 for file in filenames
             ]
         else:
-            if not isinstance(model_name_or_path, str):
-                model_name_or_path = str(model_name_or_path)
-            all_files = huggingface_hub.list_repo_files(model_name_or_path, repo_type="model")
-            if subfolder != "":
-                all_files = [file[len(subfolder) + 1 :] for file in all_files if file.startswith(subfolder)]
+            try:
+                if not isinstance(model_name_or_path, str):
+                    model_name_or_path = str(model_name_or_path)
+                all_files = huggingface_hub.list_repo_files(model_name_or_path, repo_type="model")
+                if subfolder != "":
+                    all_files = [file[len(subfolder) + 1 :] for file in all_files if file.startswith(subfolder)]
+            except RequestsConnectionError as e:  # Hub not accessible
+                request_exception = e
+                object_id = model_name_or_path.replace("/", "--")
+                full_model_path = Path(cache_dir, f"models--{object_id}")
+                if full_model_path.is_dir():  # explore the cache first
+                    # Resolve refs (for instance to convert main to the associated commit sha)
+                    revision_file = Path(full_model_path, "refs", "main")
+                    revision = ""
+                    if revision_file.is_file():
+                        with open(revision_file) as f:
+                            revision = f.read()
+                    cached_path = Path(full_model_path, "snapshots", revision, subfolder)
+                    all_files = [
+                        os.path.relpath(os.path.join(dirpath, file), cached_path)
+                        for dirpath, _, filenames in os.walk(cached_path)
+                        for file in filenames
+                    ]
 
-        weight_name = Path(WEIGHTS_NAME).stem
-        weight_extension = Path(WEIGHTS_NAME).suffix
-        is_pt_weight_file = [file.startswith(weight_name) and file.endswith(weight_extension) for file in all_files]
+        pt_weight_name = Path(WEIGHTS_NAME).stem
+        pt_weight_extension = Path(WEIGHTS_NAME).suffix
+        safe_weight_name = Path(SAFE_WEIGHTS_NAME).stem
+        safe_weight_extension = Path(SAFE_WEIGHTS_NAME).suffix
+        is_pt_weight_file = [
+            (file.startswith(pt_weight_name) and file.endswith(pt_weight_extension))
+            or (file.startswith(safe_weight_name) and file.endswith(safe_weight_extension))
+            for file in all_files
+        ]
 
         weight_name = Path(TF2_WEIGHTS_NAME).stem
         weight_extension = Path(TF2_WEIGHTS_NAME).suffix
@@ -1144,11 +1219,16 @@ class TasksManager:
             # stable diffusion case
             framework = "pt"
         else:
-            raise FileNotFoundError(
-                "Cannot determine framework from given checkpoint location."
-                f" There should be a {Path(WEIGHTS_NAME).stem}*{Path(WEIGHTS_NAME).suffix} for PyTorch"
-                f" or {Path(TF2_WEIGHTS_NAME).stem}*{Path(TF2_WEIGHTS_NAME).suffix} for TensorFlow."
-            )
+            if request_exception is not None:
+                raise RequestsConnectionError(
+                    f"The framework could not be automatically inferred. If using the command-line, please provide the argument --framework (pt,tf) Detailed error: {request_exception}"
+                )
+            else:
+                raise FileNotFoundError(
+                    "Cannot determine framework from given checkpoint location."
+                    f" There should be a {Path(WEIGHTS_NAME).stem}*{Path(WEIGHTS_NAME).suffix} for PyTorch"
+                    f" or {Path(TF2_WEIGHTS_NAME).stem}*{Path(TF2_WEIGHTS_NAME).suffix} for TensorFlow."
+                )
 
         if is_torch_available():
             framework = framework or "pt"
@@ -1201,20 +1281,13 @@ class TasksManager:
                 break
         if task_name is None:
             raise ValueError(f"Could not infer the task name for {target_name}.")
+
         return task_name
 
     @classmethod
     def _infer_task_from_model_name_or_path(
         cls, model_name_or_path: str, subfolder: str = "", revision: Optional[str] = None
     ) -> str:
-        tasks_to_automodels = {}
-        class_name_prefix = ""
-        if is_torch_available():
-            tasks_to_automodels = TasksManager._TASKS_TO_AUTOMODELS
-        else:
-            tasks_to_automodels = TasksManager._TASKS_TO_TF_AUTOMODELS
-            class_name_prefix = "TF"
-
         inferred_task_name = None
         is_local = os.path.isdir(os.path.join(model_name_or_path, subfolder))
 
@@ -1239,16 +1312,24 @@ class TasksManager:
                     inferred_task_name = TasksManager.map_from_synonym(model_info.pipeline_tag)
                 else:
                     transformers_info = model_info.transformersInfo
+                    if transformers_info is not None and transformers_info.get("pipeline_tag") is not None:
+                        inferred_task_name = TasksManager.map_from_synonym(transformers_info["pipeline_tag"])
+                    else:
+                        # transformersInfo does not always have a pipeline_tag attribute
+                        class_name_prefix = ""
+                        if is_torch_available():
+                            tasks_to_automodels = TasksManager._TASKS_TO_AUTOMODELS
+                        else:
+                            tasks_to_automodels = TasksManager._TASKS_TO_TF_AUTOMODELS
+                            class_name_prefix = "TF"
 
-                    if transformers_info is None or transformers_info.get("auto_model") is None:
-                        raise RuntimeError(f"Could not infer the task from the model repo {model_name_or_path}")
-                    auto_model_class_name = transformers_info["auto_model"]
-                    if not auto_model_class_name.startswith("TF"):
-                        auto_model_class_name = f"{class_name_prefix}{auto_model_class_name}"
-                    for task_name, class_name_for_task in tasks_to_automodels.items():
-                        if class_name_for_task == auto_model_class_name:
-                            inferred_task_name = task_name
-                            break
+                        auto_model_class_name = transformers_info["auto_model"]
+                        if not auto_model_class_name.startswith("TF"):
+                            auto_model_class_name = f"{class_name_prefix}{auto_model_class_name}"
+                        for task_name, class_name_for_task in tasks_to_automodels.items():
+                            if class_name_for_task == auto_model_class_name:
+                                inferred_task_name = task_name
+                                break
 
         if inferred_task_name is None:
             raise KeyError(f"Could not find the proper task name for {auto_model_class_name}.")
@@ -1316,6 +1397,7 @@ class TasksManager:
         framework: Optional[str] = None,
         cache_dir: Optional[str] = None,
         torch_dtype: Optional["torch.dtype"] = None,
+        device: Optional[Union["torch.device", str]] = None,
         **model_kwargs,
     ) -> Union["PreTrainedModel", "TFPreTrainedModel"]:
         """
@@ -1339,6 +1421,8 @@ class TasksManager:
                 Path to a directory in which a downloaded pretrained model weights have been cached if the standard cache should not be used.
             torch_dtype (`Optional[torch.dtype]`, defaults to `None`):
                 Data type to load the model on. PyTorch-only argument.
+            device (`Optional[torch.device]`, defaults to `None`):
+                Device to initialize the model on. PyTorch-only argument. For PyTorch, defaults to "cpu".
             model_kwargs (`Dict[str, Any]`, *optional*):
                 Keyword arguments to pass to the model `.from_pretrained()` method.
 
@@ -1354,13 +1438,16 @@ class TasksManager:
 
         model_type = None
         model_class_name = None
+        kwargs = {"subfolder": subfolder, "revision": revision, "cache_dir": cache_dir, **model_kwargs}
+
         if TasksManager._TASKS_TO_LIBRARY[task.replace("-with-past", "")] == "transformers":
+            config = AutoConfig.from_pretrained(model_name_or_path, **kwargs)
+            model_type = config.model_type.replace("_", "-")
             # TODO: if automatic-speech-recognition is passed as task, it may map to several
             # different auto class (AutoModelForSpeechSeq2Seq or AutoModelForCTC),
             # depending on the model type
-            if original_task in ["auto", "automatic-speech-recognition"]:
-                config = AutoConfig.from_pretrained(model_name_or_path)
-                model_type = config.model_type.replace("_", "-")
+            # if original_task in ["auto", "automatic-speech-recognition"]:
+            if original_task == "automatic-speech-recognition" or task == "automatic-speech-recognition":
                 if original_task == "auto" and config.architectures is not None:
                     model_class_name = config.architectures[0]
 
@@ -1368,11 +1455,24 @@ class TasksManager:
             task, framework, model_type=model_type, model_class_name=model_class_name
         )
 
-        kwargs = {"subfolder": subfolder, "revision": revision, "cache_dir": cache_dir, **model_kwargs}
         try:
             if framework == "pt":
                 kwargs["torch_dtype"] = torch_dtype
-            model = model_class.from_pretrained(model_name_or_path, **kwargs)
+
+                if isinstance(device, str):
+                    device = torch.device(device)
+                elif device is None:
+                    device = torch.device("cpu")
+
+                if version.parse(torch.__version__) >= version.parse("2.0"):
+                    with device:
+                        # Initialize directly in the requested device, to save allocation time. Especially useful for large
+                        # models to initialize on cuda device.
+                        model = model_class.from_pretrained(model_name_or_path, **kwargs)
+                else:
+                    model = model_class.from_pretrained(model_name_or_path, **kwargs).to(device)
+            else:
+                model = model_class.from_pretrained(model_name_or_path, **kwargs)
         except OSError:
             if framework == "pt":
                 logger.info("Loading TensorFlow model in PyTorch before exporting.")
@@ -1427,12 +1527,17 @@ class TasksManager:
 
         model_tasks = TasksManager.get_supported_tasks_for_model_type(model_type, exporter, model_name=model_name)
 
-        task = TasksManager.map_from_synonym(task)
         if task not in model_tasks:
-            raise ValueError(
-                f"{model_type} doesn't support task {task} for the {exporter} backend."
-                f" Supported tasks are: {', '.join(model_tasks.keys())}."
-            )
+            synonyms = TasksManager.synonyms_for_task(task)
+            for synonym in synonyms:
+                if synonym in model_tasks:
+                    task = synonym
+                    break
+            if task not in model_tasks:
+                raise ValueError(
+                    f"{model_type} doesn't support task {task} for the {exporter} backend."
+                    f" Supported tasks are: {', '.join(model_tasks.keys())}."
+                )
 
         exporter_config_constructor = TasksManager._SUPPORTED_MODEL_TYPE[model_type][exporter][task]
         if exporter_config_kwargs is not None:

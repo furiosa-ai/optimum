@@ -69,7 +69,12 @@ FROM_PRETRAINED_START_DOCSTRING = r"""
 """
 
 
-class OptimizedModel(ABC):
+# workaround to enable compatibility between optimum models and transformers pipelines
+class PreTrainedModel(ABC):  # noqa: F811
+    pass
+
+
+class OptimizedModel(PreTrainedModel):
     config_class = AutoConfig
     load_tf_weights = None
     base_model_prefix = "optimized_model"
@@ -164,8 +169,7 @@ class OptimizedModel(ABC):
 
         api.create_repo(
             token=huggingface_token,
-            name=repository_id,
-            organization=user["name"],
+            repo_id=repository_id,
             exist_ok=True,
             private=private,
         )
@@ -177,7 +181,7 @@ class OptimizedModel(ABC):
                 try:
                     api.upload_file(
                         token=huggingface_token,
-                        repo_id=f"{user['name']}/{repository_id}",
+                        repo_id=f"{repository_id}",
                         path_or_fileobj=os.path.join(os.getcwd(), local_file_path),
                         path_in_repo=hub_file_path,
                     )

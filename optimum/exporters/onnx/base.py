@@ -38,8 +38,9 @@ from ...utils import (
     logging,
 )
 from ...utils import TORCH_MINIMUM_VERSION as GLOBAL_MIN_TORCH_VERSION
+from ...utils import TRANSFORMERS_MINIMUM_VERSION as GLOBAL_MIN_TRANSFORMERS_VERSION
 from ...utils.doc import add_dynamic_docstring
-from ...utils.import_utils import is_onnx_available, is_onnxruntime_available
+from ...utils.import_utils import check_if_transformers_greater, is_onnx_available, is_onnxruntime_available
 from ..base import ExportConfig
 from .constants import ONNX_DECODER_MERGED_NAME, ONNX_DECODER_NAME, ONNX_DECODER_WITH_PAST_NAME, ONNX_ENCODER_NAME
 from .model_patcher import ModelPatcher, Seq2SeqModelPatcher
@@ -102,6 +103,9 @@ class OnnxConfig(ExportConfig, ABC):
     - DEFAULT_ONNX_OPSET (`int`, defaults to 11) -- The default ONNX opset to use for the ONNX export.
     - MIN_TORCH_VERSION (`packaging.version.Version`, defaults to [`~optimum.exporters.onnx.utils.TORCH_MINIMUM_VERSION`]) -- The
     minimum torch version supporting the export of the model to ONNX.
+    - MIN_TRANSFORMERS_VERSION (`packaging.version.Version`, defaults to
+    [`~optimum.exporters.onnx.utils.TRANSFORMERS_MINIMUM_VERSION`] -- The minimum transformers version supporting the
+    export of the model to ONNX. Not always up-to-date or accurate. This is more for internal use.
     - PATCHING_SPECS (`Optional[List[PatchingSpec]]`, defaults to `None`) -- Specify which operators / modules should be
     patched before performing the export, and how. This is useful when some operator is not supported in ONNX for
     instance.
@@ -118,14 +122,16 @@ class OnnxConfig(ExportConfig, ABC):
     DEFAULT_ONNX_OPSET = 11
     ATOL_FOR_VALIDATION: Union[float, Dict[str, float]] = 1e-5
     MIN_TORCH_VERSION = GLOBAL_MIN_TORCH_VERSION
+    MIN_TRANSFORMERS_VERSION = GLOBAL_MIN_TRANSFORMERS_VERSION
     PATCHING_SPECS: Optional[List["PatchingSpec"]] = None
     _TASK_TO_COMMON_OUTPUTS = {
         "audio-classification": OrderedDict({"logits": {0: "batch_size"}}),
         "audio-frame-classification": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "automatic-speech-recognition": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "audio-xvector": OrderedDict({"logits": {0: "batch_size"}, "embeddings": {0: "batch_size"}}),
-        "text-generation": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
+        "document-question-answering": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "feature-extraction": OrderedDict({"last_hidden_state": {0: "batch_size", 1: "sequence_length"}}),
+        "fill-mask": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "image-classification": OrderedDict({"logits": {0: "batch_size"}}),
         # TODO: Is this the same thing as semantic-segmentation?
         "image-segmentation": OrderedDict(
@@ -135,8 +141,11 @@ class OnnxConfig(ExportConfig, ABC):
                 "pred_masks": {0: "batch_size", 1: "num_queries"},
             }
         ),
-        "masked-im": OrderedDict({"logits": {0: "batch_size"}}),
-        "fill-mask": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
+        "image-to-text": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
+        "mask-generation": OrderedDict({"logits": {0: "batch_size"}}),
+        "masked-im": OrderedDict(
+            {"reconstruction" if check_if_transformers_greater("4.29.0") else "logits": {0: "batch_size"}}
+        ),
         "multiple-choice": OrderedDict({"logits": {0: "batch_size", 1: "num_choices"}}),
         "object-detection": OrderedDict(
             {
@@ -153,8 +162,9 @@ class OnnxConfig(ExportConfig, ABC):
         "semantic-segmentation": OrderedDict({"logits": {0: "batch_size", 1: "num_labels", 2: "height", 3: "width"}}),
         "text2text-generation": OrderedDict({"logits": {0: "batch_size", 1: "decoder_sequence_length"}}),
         "text-classification": OrderedDict({"logits": {0: "batch_size"}}),
+        "text-generation": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "token-classification": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
-        "image-to-text": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
+        "visual-question-answering": OrderedDict({"logits": {0: "batch_size", 1: "sequence_length"}}),
         "zero-shot-image-classification": OrderedDict(
             {
                 "logits_per_image": {0: "image_batch_size", 1: "text_batch_size"},
@@ -163,11 +173,14 @@ class OnnxConfig(ExportConfig, ABC):
                 "image_embeds": {0: "image_batch_size"},
             }
         ),
-        # TODO: enable that and verify that once OwlViTOnnxConfig can work.
-        # "zero-shot-object-detection": OrderedDict({
-        #     "logits": {0: "batch_size"},
-        #     "pred_boxes": {0: "batch_size"},
-        # }),
+        "zero-shot-object-detection": OrderedDict(
+            {
+                "logits": {0: "batch_size", 1: "num_queries"},
+                "pred_boxes": {0: "batch_size", 1: "num_queries"},
+                "text_embeds": {0: "text_batch_size"},
+                "image_embeds": {0: "image_batch_size"},
+            }
+        ),
     }
 
     def __init__(self, config: "PretrainedConfig", task: str = "feature-extraction"):
@@ -222,7 +235,6 @@ class OnnxConfig(ExportConfig, ABC):
     ):
         """
         Fixes potential issues with dynamic axes.
-
         During the export, ONNX will infer some axes to be dynamic which are actually static. This method is called
         right after the export to fix such issues.
 
@@ -254,6 +266,8 @@ class OnnxConfig(ExportConfig, ABC):
         session_options.graph_optimization_level = GraphOptimizationLevel.ORT_DISABLE_ALL  # no need to optimize here
         session = InferenceSession(model_path.as_posix(), providers=providers, sess_options=session_options)
 
+        onnx_input_names = [inp.name for inp in session.get_inputs()]
+
         to_fix = []
         for output_idx, node in enumerate(session.get_outputs()):
             for idx, axis in enumerate(node.shape):
@@ -265,7 +279,7 @@ class OnnxConfig(ExportConfig, ABC):
             if input_shapes is None:
                 input_shapes = {}
             dummy_inputs = self.generate_dummy_inputs(framework="np", **input_shapes)
-            dummy_inputs = self.generate_dummy_inputs_for_validation(dummy_inputs)
+            dummy_inputs = self.generate_dummy_inputs_for_validation(dummy_inputs, onnx_input_names=onnx_input_names)
             onnx_inputs = {}
             for name, value in dummy_inputs.items():
                 if isinstance(value, (list, tuple)):
@@ -273,9 +287,11 @@ class OnnxConfig(ExportConfig, ABC):
                     onnx_inputs.update(dict(value.items()))
                 else:
                     onnx_inputs[name] = value
+
             for name, value in onnx_inputs.items():
                 if value.dtype == np.float32 and dtype == "fp16":
                     onnx_inputs[name] = onnx_inputs[name].astype(np.float16)
+
             outputs = session.run(None, onnx_inputs)
             del session
 
@@ -289,8 +305,10 @@ class OnnxConfig(ExportConfig, ABC):
             del onnx_model
             gc.collect()
 
-    def patch_model_for_export(self, model: Union["PreTrainedModel", "TFPreTrainedModel"]) -> ModelPatcher:
-        return ModelPatcher(self, model)
+    def patch_model_for_export(
+        self, model: Union["PreTrainedModel", "TFPreTrainedModel"], model_kwargs: Optional[Dict[str, Any]] = None
+    ) -> ModelPatcher:
+        return ModelPatcher(self, model, model_kwargs=model_kwargs)
 
     @property
     def values_override(self) -> Optional[Dict[str, Any]]:
@@ -306,9 +324,20 @@ class OnnxConfig(ExportConfig, ABC):
         return None
 
     @property
+    def is_transformers_support_available(self) -> bool:
+        """
+        Whether the installed version of Transformers allows for the ONNX export.
+
+        Returns:
+            `bool`: Whether the install version of Transformers is compatible with the model.
+
+        """
+        return check_if_transformers_greater(self.MIN_TRANSFORMERS_VERSION)
+
+    @property
     def is_torch_support_available(self) -> bool:
         """
-        The minimum PyTorch version required to export the model.
+        Whether the installed version of PyTorch allows for the ONNX export.
 
         Returns:
             `bool`: Whether the installed version of PyTorch is compatible with the model.
@@ -408,16 +437,24 @@ class OnnxConfig(ExportConfig, ABC):
             `Dict[str, Any]`: Outputs with flattened structure and key mapping this new structure.
 
         """
-        return {f"{name}.{idx}": item for idx, item in enumerate(itertools.chain.from_iterable(field))}
+        if isinstance(field[0], (list, tuple)):
+            return {f"{name}.{idx}": item for idx, item in enumerate(itertools.chain.from_iterable(field))}
+        else:
+            return {f"{name}.{idx}": item for idx, item in enumerate(field)}
 
-    def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_dummy_inputs_for_validation(
+        self, reference_model_inputs: Dict[str, Any], onnx_input_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         """
         Generates inputs for ONNX Runtime using the reference model inputs. Override this to run inference with seq2seq
         models which have the encoder and decoder exported as separate ONNX files.
 
         Args:
-            reference_model_inputs ([`Dict[str, Tensor]`):
+            reference_model_inputs (`Dict[str, Tensor]`):
                 Reference inputs for the model.
+            onnx_input_names (`Optional[List[str]]`, defaults to `None`):
+                Names of the actual inputs to the ONNX model. This argument may be required as an unused
+                input to the model is automatically removed by torch.onnx.export (e.g. encoder_outputs in the decoder with past)
 
         Returns:
             `Dict[str, Tensor]`: The mapping holding the kwargs to provide to the model's forward function
@@ -574,6 +611,15 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
                 dtype=dummy_inputs["attention_mask"].dtype,
             )
 
+        if self.use_past_in_inputs and self.use_cache_branch is not False and "decoder_attention_mask" in dummy_inputs:
+            past_length = dummy_inputs["past_key_values"][0][0].shape[2]
+            dummy_inputs["decoder_attention_mask"] = DummyInputGenerator.pad_input_on_dim(
+                dummy_inputs["decoder_attention_mask"],
+                desired_length=past_length + 1,
+                dim=1,
+                dtype=dummy_inputs["decoder_attention_mask"].dtype,
+            )
+
         return dummy_inputs
 
     def add_past_key_values(self, inputs_or_outputs: Dict[str, Dict[int, str]], direction: str):
@@ -615,7 +661,9 @@ class OnnxConfigWithPast(OnnxConfig, ABC):
 
         return flattened_output
 
-    def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_dummy_inputs_for_validation(
+        self, reference_model_inputs: Dict[str, Any], onnx_input_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         if self.is_merged is True and self.use_cache_branch is True:
             reference_model_inputs["use_cache_branch"] = DummyInputGenerator.constant_tensor(shape=[1], value=True)
         elif self.is_merged is True and self.use_cache_branch is False:
@@ -764,8 +812,10 @@ class OnnxSeq2SeqConfigWithPast(OnnxConfigWithPast):
         flattened_output[f"{name}.{idx}.encoder.key"] = t[2]
         flattened_output[f"{name}.{idx}.encoder.value"] = t[3]
 
-    def patch_model_for_export(self, model: Union["PreTrainedModel", "TFPreTrainedModel"]) -> ModelPatcher:
-        return Seq2SeqModelPatcher(self, model)
+    def patch_model_for_export(
+        self, model: Union["PreTrainedModel", "TFPreTrainedModel"], model_kwargs: Optional[Dict[str, Any]] = None
+    ) -> ModelPatcher:
+        return Seq2SeqModelPatcher(self, model, model_kwargs=model_kwargs)
 
     def post_process_exported_models(
         self,
@@ -817,19 +867,37 @@ class OnnxSeq2SeqConfigWithPast(OnnxConfigWithPast):
 
         return models_and_onnx_configs, onnx_files_subpaths
 
-    def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_dummy_inputs_for_validation(
+        self, reference_model_inputs: Dict[str, Any], onnx_input_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         if self._behavior is ConfigBehavior.DECODER:
             if "decoder_input_ids" in reference_model_inputs:
                 reference_model_inputs["input_ids"] = reference_model_inputs.pop("decoder_input_ids")
 
-            if "encoder_outputs" in reference_model_inputs:
-                if self.use_past_in_inputs is False or self.is_merged:
-                    # ONNX without past uses encoder_hidden_states even when we don't outputing them
-                    reference_model_inputs["encoder_hidden_states"] = reference_model_inputs.pop("encoder_outputs")[0]
-                else:
-                    # ONNX with past does not use encoder_hidden_states when we don't output them
-                    reference_model_inputs.pop("encoder_outputs")
+            if "attention_mask" in reference_model_inputs:
+                reference_model_inputs["encoder_attention_mask"] = reference_model_inputs.pop("attention_mask")
 
+            if onnx_input_names is not None:
+                if "encoder_outputs" in reference_model_inputs:
+                    if "encoder_hidden_states" in onnx_input_names:
+                        # This is typically the case for the decoder without past, and for **some**
+                        # decoder with past, e.g. t5.
+                        reference_model_inputs["encoder_hidden_states"] = reference_model_inputs.pop(
+                            "encoder_outputs"
+                        )[0]
+                    else:
+                        reference_model_inputs.pop("encoder_outputs")
+            else:
+                # TODO: remove this else in optimum 2.0 and make onnx_input_names a required argument
+                if "encoder_outputs" in reference_model_inputs:
+                    if self.use_past_in_inputs is False or self.is_merged:
+                        # ONNX without past uses encoder_hidden_states even when we don't outputing them
+                        reference_model_inputs["encoder_hidden_states"] = reference_model_inputs.pop(
+                            "encoder_outputs"
+                        )[0]
+                    else:
+                        # ONNX with past does not use encoder_hidden_states when we don't output them
+                        reference_model_inputs.pop("encoder_outputs")
         return super().generate_dummy_inputs_for_validation(reference_model_inputs)
 
 
@@ -921,7 +989,9 @@ class OnnxConfigWithLoss(OnnxConfig, ABC):
 
         return dummy_inputs
 
-    def generate_dummy_inputs_for_validation(self, reference_model_inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def generate_dummy_inputs_for_validation(
+        self, reference_model_inputs: Dict[str, Any], onnx_input_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
         return self._onnx_config.generate_dummy_inputs_for_validation(reference_model_inputs)
 
     def flatten_decoder_past_key_values(self, flattened_output, name, idx, t):

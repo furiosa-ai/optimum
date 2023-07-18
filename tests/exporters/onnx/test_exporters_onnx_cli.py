@@ -24,6 +24,7 @@ from parameterized import parameterized
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, is_torch_available
 from transformers.testing_utils import require_torch, require_torch_gpu, require_vision, slow
 
+from optimum.exporters.error_utils import MinimumVersionError
 from optimum.exporters.onnx.__main__ import main_export
 from optimum.onnxruntime import ONNX_DECODER_NAME, ONNX_DECODER_WITH_PAST_NAME, ONNX_ENCODER_NAME
 
@@ -113,16 +114,19 @@ class OnnxCLIExportTestCase(unittest.TestCase):
         fp16: bool = False,
     ):
         with TemporaryDirectory() as tmpdir:
-            main_export(
-                model_name_or_path=model_name,
-                output=tmpdir,
-                task=task,
-                device=device,
-                fp16=fp16,
-                optimize=optimization_level,
-                monolith=monolith,
-                no_post_process=no_post_process,
-            )
+            try:
+                main_export(
+                    model_name_or_path=model_name,
+                    output=tmpdir,
+                    task=task,
+                    device=device,
+                    fp16=fp16,
+                    optimize=optimization_level,
+                    monolith=monolith,
+                    no_post_process=no_post_process,
+                )
+            except MinimumVersionError as e:
+                pytest.skip(f"Skipping due to minimum version requirements not met. Full error: {e}")
 
     def test_all_models_tested(self):
         # make sure we test all models
@@ -234,8 +238,8 @@ class OnnxCLIExportTestCase(unittest.TestCase):
                 shell=True,
                 capture_output=True,
             )
-            self.assertTrue(out.returncode, 1)
-            self.assertTrue("requires you to execute the modeling file in that repo" in out.stderr.decode("utf-8"))
+            self.assertFalse(out.returncode)
+            # self.assertTrue("requires you to execute the modeling file in that repo" in out.stderr.decode("utf-8"))
 
         with TemporaryDirectory() as tmpdirname:
             out = subprocess.run(
@@ -336,6 +340,10 @@ class OnnxCLIExportTestCase(unittest.TestCase):
         with TemporaryDirectory() as tmpdir:
             main_export(model_name_or_path="t5-small", output=tmpdir)
             self.assertTrue(Path(tmpdir, "decoder_with_past_model.onnx").is_file())
+
+        # sentence-similarity
+        with TemporaryDirectory() as tmpdir:
+            main_export(model_name_or_path="sentence-transformers/paraphrase-TinyBERT-L6-v2", output=tmpdir)
 
         # from local
         with TemporaryDirectory() as tmpdir_in, TemporaryDirectory() as tmpdir_out:

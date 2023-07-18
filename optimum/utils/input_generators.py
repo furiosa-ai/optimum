@@ -54,6 +54,8 @@ DEFAULT_DUMMY_SHAPES = {
     "width": 64,
     "height": 64,
     "num_channels": 3,
+    "point_batch_size": 3,
+    "nb_points_per_image": 2,
     # audio
     "feature_size": 80,
     "nb_max_frames": 3000,
@@ -661,3 +663,59 @@ class DummyLabelsGenerator(DummyInputGenerator):
             shape = [self.batch_size, self.sequence_length]
 
         return self.random_int_tensor(shape, max_value=max_value, framework=framework)
+
+
+class DummyPointsGenerator(DummyInputGenerator):
+    """
+    Generates dummy time step inputs.
+    """
+
+    SUPPORTED_INPUT_NAMES = ("input_points",)
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int = DEFAULT_DUMMY_SHAPES["batch_size"],
+        point_batch_size: int = DEFAULT_DUMMY_SHAPES["point_batch_size"],
+        nb_points_per_image: int = DEFAULT_DUMMY_SHAPES["nb_points_per_image"],
+        **kwargs,
+    ):
+        self.task = task
+
+        self.batch_size = batch_size
+        self.point_batch_size = point_batch_size
+        self.nb_points_per_image = nb_points_per_image
+
+    def generate(self, input_name: str, framework: str = "pt"):
+        shape = [self.batch_size, self.point_batch_size, self.nb_points_per_image, 2]
+        return self.random_float_tensor(shape, framework=framework)
+
+
+class DummyPix2StructInputGenerator(DummyInputGenerator):
+    """
+    Generates dummy time step inputs.
+    """
+
+    SUPPORTED_INPUT_NAMES = ("flattened_patches",)
+
+    def __init__(
+        self,
+        task: str,
+        normalized_config: NormalizedConfig,
+        batch_size: int = DEFAULT_DUMMY_SHAPES["batch_size"],
+        patch_height: int = 16,
+        patch_width: int = 16,
+        max_patches: int = DEFAULT_DUMMY_SHAPES["sequence_length"],
+        num_channels: int = DEFAULT_DUMMY_SHAPES["num_channels"],
+        **kwargs,
+    ):
+        self.task = task
+
+        self.batch_size = batch_size
+        self.flattened_patch_size = 2 + patch_height * patch_width * num_channels
+        self.max_patches = max_patches
+
+    def generate(self, input_name: str, framework: str = "pt"):
+        shape = [self.batch_size, self.max_patches, self.flattened_patch_size]
+        return self.random_float_tensor(shape, framework=framework)

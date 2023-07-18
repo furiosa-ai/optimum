@@ -614,6 +614,7 @@ class ORTModel(OptimizedModel):
         provider: str = "CPUExecutionProvider",
         session_options: Optional[ort.SessionOptions] = None,
         provider_options: Optional[Dict[str, Any]] = None,
+        use_io_binding: Optional[bool] = None,
         **kwargs,
     ):
         """
@@ -625,6 +626,10 @@ class ORTModel(OptimizedModel):
         provider_options (`Optional[Dict[str, Any]]`, defaults to `None`):
             Provider option dictionaries corresponding to the provider used. See available options
             for each provider: https://onnxruntime.ai/docs/api/c/group___global.html .
+        use_io_binding (`Optional[bool]`, defaults to `None`):
+            Whether to use IOBinding during inference to avoid memory copy between the host and device, or between numpy/torch tensors and ONNX Runtime ORTValue. Defaults to
+            `True` if the execution provider is CUDAExecutionProvider. For [~onnxruntime.ORTModelForCausalLM], defaults to `True` on CPUExecutionProvider,
+            in all other cases defaults to `False`.
         kwargs (`Dict[str, Any]`):
             Will be passed to the underlying model loading methods.
 
@@ -637,7 +642,7 @@ class ORTModel(OptimizedModel):
 
         use_merged (`Optional[bool]`, defaults to `None`):
             whether or not to use a single ONNX that handles both the decoding without and with past key values reuse. This option defaults
-            to `True` if loading from a local repository and a merged decoder is found. When exporting with `from_transformers=True`,
+            to `True` if loading from a local repository and a merged decoder is found. When exporting with `export=True`,
             defaults to `False`. This option should be set to `True` to minimize memory usage.
 
         Returns:
@@ -655,6 +660,7 @@ class ORTModel(OptimizedModel):
             provider=provider,
             session_options=session_options,
             provider_options=provider_options,
+            use_io_binding=use_io_binding,
             **kwargs,
         )
 
@@ -745,17 +751,17 @@ class ORTModel(OptimizedModel):
 
         name_to_np_type = TypeHelper.get_io_numpy_type_map(model)
 
-        input_name_to_tensor = {}
+        input_name_to_shape = {}
         for idx, tensor in enumerate(model_inputs):
             if tensor is None:
                 continue
             name = ordered_input_names[idx]
-            input_name_to_tensor[name] = tensor
             tensor = tensor.contiguous()
+            input_name_to_shape[name] = tensor.shape
             io_binding.bind_input(
                 name,
                 tensor.device.type,
-                self.device.index,
+                IOBindingHelper.get_device_index(self.device),
                 name_to_np_type[name],
                 tuple(tensor.shape),
                 tensor.data_ptr(),
@@ -765,7 +771,7 @@ class ORTModel(OptimizedModel):
             shape = input_.shape
             for idx, axis in enumerate(shape):
                 if isinstance(axis, str):
-                    dimensions[axis] = input_name_to_tensor[input_.name].shape[idx]
+                    dimensions[axis] = input_name_to_shape[input_.name][idx]
 
         output_shapes = {}
         output_buffers = {}
@@ -793,7 +799,7 @@ class ORTModel(OptimizedModel):
             io_binding.bind_output(
                 output_name,
                 output_buffer.device.type,
-                self.device.index,
+                IOBindingHelper.get_device_index(self.device),
                 name_to_np_type[output_name],
                 output_shape,
                 output_buffer.data_ptr(),
@@ -888,6 +894,9 @@ class ORTModelForFeatureExtraction(ORTModel):
         self.raise_on_numpy_input_io_binding(use_torch)
 
         if self.device.type == "cuda" and self.use_io_binding:
+            if attention_mask is None:
+                attention_mask = torch.ones_like(input_ids)
+
             io_binding, output_shapes, output_buffers = self.prepare_io_binding(
                 input_ids,
                 attention_mask,
@@ -907,7 +916,10 @@ class ORTModelForFeatureExtraction(ORTModel):
         else:
             if use_torch:
                 input_ids = input_ids.cpu().detach().numpy()
-                attention_mask = attention_mask.cpu().detach().numpy()
+                if attention_mask is None:
+                    attention_mask = np.ones_like(input_ids)
+                else:
+                    attention_mask = attention_mask.cpu().detach().numpy()
                 if token_type_ids is not None:
                     token_type_ids = token_type_ids.cpu().detach().numpy()
 
@@ -1385,7 +1397,7 @@ MULTIPLE_CHOICE_EXAMPLE = r"""
     >>> from optimum.onnxruntime import {model_class}
 
     >>> tokenizer = {processor_class}.from_pretrained("{checkpoint}")
-    >>> model = {model_class}.from_pretrained("{checkpoint}", from_transformers=True)
+    >>> model = {model_class}.from_pretrained("{checkpoint}", export=True)
 
     >>> num_choices = 4
     >>> first_sentence = ["Members of the procession walk down the street holding small horn brass instruments."] * num_choices

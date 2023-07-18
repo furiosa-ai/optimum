@@ -17,7 +17,6 @@ REQUIRED_PKGS = [
     "sympy",
     "transformers[sentencepiece]>=4.26.0",
     "torch>=1.9",
-    "torchvision",
     "packaging",
     "numpy",
     "huggingface_hub>=0.8.0",
@@ -35,11 +34,12 @@ TESTS_REQUIRE = [
     "pytest-xdist",
     "Pillow",
     "sacremoses",
-    "diffusers",
+    "torchvision",
+    "diffusers>=0.17.0",
     "torchaudio",
 ]
 
-QUALITY_REQUIRE = ["black~=23.1", "ruff>=0.0.241"]
+QUALITY_REQUIRE = ["black~=23.1", "ruff>=0.0.241,<=0.0.259"]
 
 BENCHMARK_REQUIRE = ["optuna", "tqdm", "scikit-learn", "seqeval", "torchvision", "evaluate>=0.2.0"]
 
