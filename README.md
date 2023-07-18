@@ -106,6 +106,181 @@ options:
                         Task to export model for
 ```
 
+### toy model
+```
+(optimum) root@linux-warboy-jasonzcnl2:~/workspace/optimum# python3 -m optimum.litmus.nlp.toy_model --help
+usage: FuriosaAI litmus exporting toy model(w/o pretrained weights) using HF Optimum API. [-h] [--config-path CONFIG_PATH] [--batch-size BATCH_SIZE]
+                                                                                          [--input-len INPUT_LEN] [--gen-step GEN_STEP]
+                                                                                          [--task {text-generation-with-past}]
+                                                                                          output_dir
+
+positional arguments:
+  output_dir            path to directory to save outputs
+
+options:
+  -h, --help            show this help message and exit
+  --config-path CONFIG_PATH, -c CONFIG_PATH
+                        path to model config saved in json format
+  --batch-size BATCH_SIZE, -b BATCH_SIZE
+                        Batch size for model inputs
+  --input-len INPUT_LEN
+                        Length of input prommpt
+  --gen-step GEN_STEP   Generation step to simplify onnx graph
+  --task {text-generation-with-past}
+                        Task to export model for
+```
+
+<details>
+<summary>example</summary>
+
+```
+  $ python3 -m optimum.litmus.nlp.toy_model toy/gpt2 -c configs/gpt2-toy.json -b 1 --input-len 128 --gen-step 0
+  Proceeding model exporting and optimization based given model config:
+  {
+    "activation_function": "gelu_new",
+    "architectures": [
+      "GPT2LMHeadModel"
+    ],
+    "attn_pdrop": 0.1,
+    "bos_token_id": 1023,
+    "embd_pdrop": 0.1,
+    "eos_token_id": 1023,
+    "initializer_range": 0.02,
+    "layer_norm_epsilon": 1e-05,
+    "model_type": "gpt2",
+    "n_ctx": 1024,
+    "n_embd": 128,
+    "n_head": 4,
+    "n_layer": 3,
+    "n_positions": 1024,
+    "resid_pdrop": 0.1,
+    "summary_activation": null,
+    "summary_first_dropout": 0.1,
+    "summary_proj_to_labels": true,
+    "summary_type": "cls_index",
+    "summary_use_proj": true,
+    "task_specific_params": {
+      "text-generation": {
+        "do_sample": true,
+        "max_length": 50
+      }
+    },
+    "vocab_size": 1024,
+    "_reference": "https://huggingface.co/docs/transformers/model_doc/gpt2#transformers.GPT2Config"
+  }
+  Exporting ONNX Model...
+  use_past = False is different than use_present_in_outputs = True, the value of use_present_in_outputs value will be used for the outputs.
+  Using framework PyTorch: 2.0.1+cu117
+  Overriding 2 configuration item(s)
+          - use_cache -> True
+          - pad_token_id -> 0
+  /root/miniconda3/envs/optimum/lib/python3.10/site-packages/transformers/models/gpt2/modeling_gpt2.py:810: TracerWarning: Converting a tensor to a Python boolean might cause the trace to be incorrect. We can't record the data flow of Python values, so this value will be treated as a constant in the future. This means that the trace might not generalize to other inputs!
+    if batch_size <= 0:
+  ============= Diagnostic Run torch.onnx.export version 2.0.1+cu117 =============
+  verbose: False, log level: Level.ERROR
+  ======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+  Using framework PyTorch: 2.0.1+cu117
+  Overriding 2 configuration item(s)
+          - use_cache -> True
+          - pad_token_id -> 0
+  Asked a sequence length of 16, but a sequence length of 1 will be used with use_past == True for `input_ids`.
+  ============= Diagnostic Run torch.onnx.export version 2.0.1+cu117 =============
+  verbose: False, log level: Level.ERROR
+  ======================= 0 NONE 0 NOTE 0 WARNING 0 ERROR ========================
+
+  Asked a sequence length of 16, but a sequence length of 1 will be used with use_past == True for `input_ids`.
+  Post-processing the exported models...
+  Validating ONNX model toy/gpt2/decoder_model_merged.onnx...
+          -[✓] ONNX model output names match reference model (present.0.key, present.0.value, present.2.value, present.1.key, present.1.value, present.2.key, logits)
+          - Validating ONNX Model output "logits":
+                  -[✓] (2, 16, 1024) matches (2, 16, 1024)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.0.key":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.0.value":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.1.key":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.1.value":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.2.key":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.2.value":
+                  -[✓] (2, 4, 16, 32) matches (2, 4, 16, 32)
+                  -[✓] all values close (atol: 1e-05)
+  Validating ONNX model toy/gpt2/decoder_model_merged.onnx...
+  Asked a sequence length of 16, but a sequence length of 1 will be used with use_past == True for `input_ids`.
+          -[✓] ONNX model output names match reference model (present.0.key, present.0.value, present.2.value, present.1.key, present.1.value, present.2.key, logits)
+          - Validating ONNX Model output "logits":
+                  -[✓] (2, 1, 1024) matches (2, 1, 1024)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.0.key":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.0.value":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.1.key":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.1.value":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.2.key":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+          - Validating ONNX Model output "present.2.value":
+                  -[✓] (2, 4, 17, 32) matches (2, 4, 17, 32)
+                  -[✓] all values close (atol: 1e-05)
+  The ONNX export succeeded and the exported model was saved at: toy/gpt2
+  Simplifying ONNX Model...
+  Checking 1/5...
+  Checking 2/5...
+  Checking 3/5...
+  Checking 4/5...
+  Checking 5/5...
+  ┏━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┓
+  ┃                 ┃ Original Model ┃ Simplified Model ┃
+  ┡━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━┩
+  │ Add             │ 33             │ 30               │
+  │ Cast            │ 11             │ 1                │
+  │ Concat          │ 40             │ 0                │
+  │ Constant        │ 343            │ 42               │
+  │ ConstantOfShape │ 3              │ 0                │
+  │ Div             │ 10             │ 10               │
+  │ Gather          │ 53             │ 1                │
+  │ Gemm            │ 12             │ 12               │
+  │ Identity        │ 22             │ 0                │
+  │ MatMul          │ 7              │ 7                │
+  │ Mul             │ 20             │ 20               │
+  │ Pow             │ 13             │ 10               │
+  │ Range           │ 1              │ 0                │
+  │ ReduceMean      │ 14             │ 14               │
+  │ Reshape         │ 40             │ 39               │
+  │ Shape           │ 73             │ 0                │
+  │ Slice           │ 28             │ 0                │
+  │ Softmax         │ 3              │ 3                │
+  │ Split           │ 3              │ 3                │
+  │ Sqrt            │ 7              │ 7                │
+  │ Squeeze         │ 22             │ 0                │
+  │ Sub             │ 11             │ 8                │
+  │ Tanh            │ 3              │ 3                │
+  │ Transpose       │ 15             │ 15               │
+  │ Unsqueeze       │ 78             │ 2                │
+  │ Where           │ 3              │ 3                │
+  │ Model Size      │ 4.9MiB         │ 3.4MiB           │
+  └─────────────────┴────────────────┴──────────────────┘
+  [1/1] 🔍   Compiling from onnx to dfg
+  Done in 0.01256042s
+  ✨  Finished in 0.01283372s
+```
+
 [![ONNX Runtime](https://github.com/huggingface/optimum/actions/workflows/test_onnxruntime.yml/badge.svg)](https://github.com/huggingface/optimum/actions/workflows/test_onnxruntime.yml)
 
 # Hugging Face Optimum
