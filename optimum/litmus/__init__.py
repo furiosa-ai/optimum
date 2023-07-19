@@ -1,6 +1,6 @@
 import copy
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import onnxoptimizer
 import onnxruntime as ort
@@ -11,7 +11,7 @@ from optimum.exporters.onnx import main_export
 from optimum.litmus import onnxsim, utils
 
 TARGET_IR = "dfg"
-TARGET_NPU = "warboy-b0"
+TARGET_NPU = "renegade"
 
 # set default onnxruntime looging level 3: Error to suppress warnings(2: Warning)
 ort.set_default_logger_severity(3)
@@ -50,7 +50,7 @@ def simplify_onnx(
 
 
 def compile_onnx(
-    input_model: Union[Path, onnx.ModelProto], output_dfg: Path, output_dot: Path
+    input_model: Union[Path, onnx.ModelProto], output_dfg: Path, output_dot: Optional[Path] = None
 ) -> None:
     if isinstance(input_model, Path):
         input_model = utils.load_onnx(input_model)

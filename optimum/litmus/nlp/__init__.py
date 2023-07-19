@@ -19,7 +19,7 @@ def simplify(
     task: str = "text-generation-with-past",
 ) -> onnx.ModelProto:
     if task != "text-generation-with-past":
-        raise Exception("Unsupported model task: {task}")
+        raise Exception(f"Unsupported model task: {task}")
     model_opt = simplify_text_generation_onnx(
         input_model, output_dir, batch_size, input_length, generation_step
     )
@@ -74,15 +74,16 @@ def separate_merged_graph(merged_model: onnx.ModelProto, gen_step: int) -> onnx.
         for vi in merged_model.graph.input
         if any(vi.name == vi_name for vi_name in ["input_ids", "attention_mask"])
     ]
+    decoder, decoder_with_past = subgraphs
     if gen_step == 0:
-        subgraph_nodes = subgraphs[0].node
-        subgraph_outputs = subgraphs[0].output
+        subgraph_nodes = decoder.node
+        subgraph_outputs = decoder.output
     if gen_step > 0:
         subgraph_inputs.extend(
             [vi for vi in merged_model.graph.input if "past_key_values" in vi.name]
         )
-        subgraph_nodes = subgraphs[1].node
-        subgraph_outputs = subgraphs[1].output
+        subgraph_nodes = decoder_with_past.node
+        subgraph_outputs = decoder_with_past.output
 
     subgraph_initializers = []
     for node in subgraph_nodes:
