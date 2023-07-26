@@ -1,6 +1,7 @@
 import argparse
 from collections import OrderedDict
 import copy
+import itertools
 import os
 from pathlib import Path
 import sys
@@ -93,6 +94,31 @@ def check_opt_model(
     assert not [
         node for node in model_opt.graph.node if node.op_type == "Shape"
     ], "Shape operator remains in simplified ONNX graph. It should be further simplified."
+
+    all_vi_list = [
+        vi.name
+        for vi in itertools.chain(
+            model_opt.graph.value_info, model_opt.graph.input, model_opt.graph.output
+        )
+    ]
+    all_init_list = [init.name for init in model_opt.graph.initializer]
+    for node in model_opt.graph.node:
+        for node_input in node.input:
+            if node_input in all_init_list:
+                assert (
+                    node_input in all_init_list
+                ), f"{node_input} in Node {node.name} has no initializer."
+            else:
+                # skip for empty optional input
+                if not node_input:
+                    continue
+                assert (
+                    node_input in all_vi_list
+                ), f"{node_input} in Node {node.name} has no value_info."
+        for node_output in node.output:
+            assert (
+                node_output in all_vi_list
+            ), f"{node_output} in Node {node.name} has no value_info."
 
     for i in range(n_times):
         print(f"Checking {i+1}/{n_times}...")
