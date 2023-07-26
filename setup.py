@@ -23,7 +23,7 @@ REQUIRED_PKGS = [
     "huggingface_hub>=0.8.0",
     "datasets",
     "furiosa-sdk",
-    "onnx",
+    "onnx==1.13.1",
     "onnxsim",
     "onnxoptimizer",
     "onnxruntime",
