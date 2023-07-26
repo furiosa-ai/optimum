@@ -261,16 +261,37 @@ def forward_onnx(
 
 
 def move_initializer_to_input(model: onnx.ModelProto) -> onnx.ModelProto:
+    inits = {init.name: init for init in model.graph.initializer}
+
     grpah_inputs = []
-    for init in model.graph.initializer:
-        np_array = onnx.numpy_helper.to_array(init)
-        grpah_inputs.append(
-            onnx.helper.make_tensor_value_info(
-                init.name, onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[np_array.dtype], [*np_array.shape]
+    init_removed = {}
+    for node in model.graph.node:
+        # apply for those in computation intensive operators. For they are mostly large.
+        if node.op_type not in ["MatMul", "Conv", "Gemm", "Mul", "Add"]:
+            continue
+        for node_input in node.input:
+            if node_input not in inits:
+                continue
+            init = inits[node_input]
+            init_array = onnx.numpy_helper.to_array(init)
+
+            # skip singleton numpy array
+            if init_array.ndim < 1:
+                continue
+
+            grpah_inputs.append(
+                onnx.helper.make_tensor_value_info(
+                    init.name,
+                    onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[init_array.dtype],
+                    [*init_array.shape],
+                )
             )
-        )
+            init_removed.update({init.name: init})
+
+    for rm_init in init_removed.values():
+        model.graph.initializer.remove(rm_init)
     model.graph.input.extend(grpah_inputs)
-    model.graph.ClearField("initializer")
+
     return model
 
 
