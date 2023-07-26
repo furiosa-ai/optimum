@@ -171,6 +171,7 @@ def save_onnx(model: onnx.ModelProto, output_model: Union[Path, str]) -> None:
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location=os.path.basename(output_model) + "_data",
+            convert_attribute=True,
         )
 
 
