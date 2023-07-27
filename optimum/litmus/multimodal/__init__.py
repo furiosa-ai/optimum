@@ -5,7 +5,7 @@ from typing import Optional, Tuple, Union
 import onnx
 from optimum.litmus import compile_onnx, export_onnx, simplify_onnx, utils
 
-TASKS = ["text-generation-with-past"]
+TASKS = ["stable-diffusion"]
 BATCH_SIZE = 1
 INPUT_LENGTH = 77
 LATENT_HEIGHT = LATENT_WIDTH = 64
@@ -45,13 +45,15 @@ def export_stable_diffusion_onnx(
     output_dir = Path(output_dir) if isinstance(output_dir, str) else output_dir
     for module in ["text_encoder", "unet", "vae_decoder"]:
         if not (output_dir / module / "model.onnx").exists():
-            print("Exporting ONNX...")
+            print(f"Exporting {module} module...")
             export_onnx(
                 model_name_or_path=model_tag,
                 output=output_dir,
                 task="stable-diffusion",
                 framework="pt",
             )
+        else:
+            print("All ONNX modules have already been exproted.")
 
 
 def simplify_stable_diffusion_onnx(
@@ -80,8 +82,11 @@ def simplify_stable_diffusion_onnx(
             assert hidden_state_input.name == "encoder_hidden_states"
             hidden_state_dim = hidden_state_input.type.tensor_type.shape.dim[2].dim_value
             fixed_input_shapes["encoder_hidden_states"][-1] = hidden_state_dim
-
-        simplify_onnx(module_dir / "model.onnx", module_dir / "model-opt.onnx", fixed_input_shapes)
+            simplify_onnx(onnx_model, module_dir / "model-opt.onnx", fixed_input_shapes)
+        else:
+            simplify_onnx(
+                module_dir / "model.onnx", module_dir / "model-opt.onnx", fixed_input_shapes
+            )
 
 
 def compile_stable_diffusion_onnx(model_dir: Path) -> None:

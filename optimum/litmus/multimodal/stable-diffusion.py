@@ -21,14 +21,14 @@ def main():
         "-v",
         choices=["1.5", "2.1"],
         required=True,
-        help="Available model versions",
+        help="available model versions",
     )
     parser.add_argument(
         "--batch-size",
         "-b",
         default=BATCH_SIZE,
         type=utils.check_non_negative,
-        help="Batch size for latent and prompt inputs",
+        help="batch size for latent and prompt inputs",
     )
     parser.add_argument(
         "--latent_shape",
@@ -36,13 +36,13 @@ def main():
         nargs=2,
         type=int,
         metavar=("latent_height", "latent_width"),
-        help="Shape of latent input. Note it is 1/8 of output image sizes",
+        help="shape of latent input. Note it is 1/8 of output image sizes",
     )
     parser.add_argument(
         "--input-len",
         default=INPUT_LENGTH,
         type=utils.check_non_negative,
-        help="Length of input prompt",
+        help="length of input prompt",
     )
     args = parser.parse_args()
 
@@ -60,6 +60,7 @@ def main():
     if not output_dir.exists():
         output_dir.mkdir(parents=True)
 
+    print("Exporting ONNX Model...")
     export(model_tag=model_tag, output_dir=output_dir, task=task, framework="pt")
 
     print("Simplifying ONNX Model...")
