@@ -176,7 +176,7 @@ def export_toy_onnx(
 
     if task == "auto":
         try:
-            task = TasksManager.infer_task_from_model(model_name_or_path)
+            task = TasksManager.infer_task_from_model(json_path)
         except KeyError as e:
             raise KeyError(
                 f"The task could not be automatically inferred. Please provide the argument --task with the relevant task from {', '.join(TasksManager.get_all_tasks())}. Detailed error: {e}"
@@ -418,8 +418,6 @@ class TasksManagerToy(TasksManager):
         revision: Optional[str] = None,
         framework: Optional[str] = None,
         cache_dir: Optional[str] = None,
-        torch_dtype: Optional["torch.dtype"] = None,
-        device: Optional[Union["torch.device", str]] = None,
         **model_kwargs,
     ) -> Union["PreTrainedModel", "TFPreTrainedModel"]:
         """
