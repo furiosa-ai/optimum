@@ -280,6 +280,30 @@ options:
   Done in 0.01256042s
   ✨  Finished in 0.01283372s
 ```
+</details>
+
+### Stable Diffusion
+https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/text2img
+https://huggingface.co/docs/diffusers/api/pipelines/stable_diffusion/stable_diffusion_2
+
+```
+$ python3 -m optimum.litmus.multimodal.stable-diffusion -h
+usage: FuriosaAI litmus Stable Diffusion using HF Optimum API. [-h] --version {1.5,2.1} [--batch-size BATCH_SIZE] [--latent_shape latent_height latent_width] [--input-len INPUT_LEN] output_dir
+
+positional arguments:
+  output_dir            path to directory to save outputs
+
+options:
+  -h, --help            show this help message and exit
+  --version {1.5,2.1}, -v {1.5,2.1}
+                        Available model versions
+  --batch-size BATCH_SIZE, -b BATCH_SIZE
+                        Batch size for latent and prompt inputs
+  --latent_shape latent_height latent_width
+                        Shape of latent input. Note it is 1/8 of output image sizes
+  --input-len INPUT_LEN
+                        Length of input prompt
+```
 
 [![ONNX Runtime](https://github.com/huggingface/optimum/actions/workflows/test_onnxruntime.yml/badge.svg)](https://github.com/huggingface/optimum/actions/workflows/test_onnxruntime.yml)
 

@@ -1,6 +1,7 @@
 import argparse
 from collections import OrderedDict
 import copy
+import itertools
 import os
 from pathlib import Path
 import sys
@@ -94,6 +95,31 @@ def check_opt_model(
         node for node in model_opt.graph.node if node.op_type == "Shape"
     ], "Shape operator remains in simplified ONNX graph. It should be further simplified."
 
+    all_vi_list = [
+        vi.name
+        for vi in itertools.chain(
+            model_opt.graph.value_info, model_opt.graph.input, model_opt.graph.output
+        )
+    ]
+    all_init_list = [init.name for init in model_opt.graph.initializer]
+    for node in model_opt.graph.node:
+        for node_input in node.input:
+            if node_input in all_init_list:
+                assert (
+                    node_input in all_init_list
+                ), f"{node_input} in Node {node.name} has no initializer."
+            else:
+                # skip for empty optional input
+                if not node_input:
+                    continue
+                assert (
+                    node_input in all_vi_list
+                ), f"{node_input} in Node {node.name} has no value_info."
+        for node_output in node.output:
+            assert (
+                node_output in all_vi_list
+            ), f"{node_output} in Node {node.name} has no value_info."
+
     for i in range(n_times):
         print(f"Checking {i+1}/{n_times}...")
         if input_data is None:
@@ -145,6 +171,7 @@ def save_onnx(model: onnx.ModelProto, output_model: Union[Path, str]) -> None:
             save_as_external_data=True,
             all_tensors_to_one_file=True,
             location=os.path.basename(output_model) + "_data",
+            convert_attribute=True,
         )
 
 
@@ -235,16 +262,37 @@ def forward_onnx(
 
 
 def move_initializer_to_input(model: onnx.ModelProto) -> onnx.ModelProto:
+    inits = {init.name: init for init in model.graph.initializer}
+
     grpah_inputs = []
-    for init in model.graph.initializer:
-        np_array = onnx.numpy_helper.to_array(init)
-        grpah_inputs.append(
-            onnx.helper.make_tensor_value_info(
-                init.name, onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[np_array.dtype], [*np_array.shape]
+    init_removed = {}
+    for node in model.graph.node:
+        # apply for those in computation intensive operators. For they are mostly large.
+        if node.op_type not in ["MatMul", "Conv", "Gemm", "Mul", "Add"]:
+            continue
+        for node_input in node.input:
+            if node_input not in inits:
+                continue
+            init = inits[node_input]
+            init_array = onnx.numpy_helper.to_array(init)
+
+            # skip singleton numpy array
+            if init_array.ndim < 1:
+                continue
+
+            grpah_inputs.append(
+                onnx.helper.make_tensor_value_info(
+                    init.name,
+                    onnx.mapping.NP_TYPE_TO_TENSOR_TYPE[init_array.dtype],
+                    [*init_array.shape],
+                )
             )
-        )
+            init_removed.update({init.name: init})
+
+    for rm_init in init_removed.values():
+        model.graph.initializer.remove(rm_init)
     model.graph.input.extend(grpah_inputs)
-    model.graph.ClearField("initializer")
+
     return model
 
 

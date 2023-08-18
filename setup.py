@@ -14,6 +14,7 @@ except Exception as error:
 
 REQUIRED_PKGS = [
     "coloredlogs",
+    "diffusers",
     "sympy",
     "transformers[sentencepiece]>=4.26.0",
     "torch>=1.9",
@@ -22,7 +23,7 @@ REQUIRED_PKGS = [
     "huggingface_hub>=0.8.0",
     "datasets",
     "furiosa-sdk",
-    "onnx",
+    "onnx==1.13.1",
     "onnxsim",
     "onnxoptimizer",
     "onnxruntime",
